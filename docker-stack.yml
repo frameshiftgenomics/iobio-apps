@@ -1,0 +1,91 @@
+version: "3.8"
+
+# Deployed with ./deploy.sh, which sources production.env and sets STACK_DIR.
+# Application configuration lives in iobio.env, not here.
+
+services:
+  gene:
+    image: ${IMAGE}
+    volumes:
+      # Read-only: the backend writes only to its own tmpdir, never to /gru_data.
+      - ${DATA_DIR}:/gru_data:ro
+    networks:
+      - internal
+    env_file:
+      - iobio.env
+    environment:
+      # Derived from DOMAIN so it cannot drift out of sync. Values set here
+      # override iobio.env.
+      IOBIO_BACKEND_ORIGIN: "https://${DOMAIN}"
+    healthcheck:
+      # Expects a route mounted at "/" — true whether the gene app or the
+      # backend status endpoint is at the root. See DEPLOYMENT.md.
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:9001/"]
+      interval: 30s
+      timeout: 10s
+      # Startup reads the data directory index files, which is not instant.
+      start_period: 120s
+      retries: 3
+    # Analyses can run for minutes; don't kill in-flight requests on update.
+    stop_grace_period: 60s
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+        delay: 10s
+      update_config:
+        order: start-first
+        failure_action: rollback
+    logging:
+      driver: json-file
+      options:
+        max-size: 50m
+        max-file: "5"
+
+  caddy:
+    image: docker.io/library/caddy:2
+    ports:
+      # host mode preserves real client IPs and allows UDP/443 for HTTP/3.
+      - target: 80
+        published: 80
+        protocol: tcp
+        mode: host
+      - target: 443
+        published: 443
+        protocol: tcp
+        mode: host
+      - target: 443
+        published: 443
+        protocol: udp
+        mode: host
+    volumes:
+      - ${STACK_DIR}/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - internal
+    environment:
+      DOMAIN: "${DOMAIN}"
+      ACME_EMAIL: "${ACME_EMAIL}"
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+        delay: 10s
+      update_config:
+        # Only one task can bind :443, so the old one must stop first.
+        order: stop-first
+    logging:
+      driver: json-file
+      options:
+        max-size: 50m
+        max-file: "5"
+
+networks:
+  internal:
+    driver: overlay
+
+volumes:
+  # Holds the Let's Encrypt account key and certificates.
+  caddy_data:
+  caddy_config:

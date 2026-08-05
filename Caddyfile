@@ -1,0 +1,16 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	reverse_proxy gene:9001 {
+		# iobio streams long-running analysis output; never buffer it.
+		flush_interval -1
+	}
+
+	log {
+		output stdout
+	}
+}
