@@ -10,7 +10,8 @@ Let's Encrypt certificates.
 
 - Ubuntu 24.04 LTS (x86_64), `t3a.medium` — burstable, so watch CPU credits and
   memory under load
-- Root volume 30 GB gp3
+- Root volume 50 GB gp3 — the backend image unpacks to ~10 GB, and `start-first`
+  updates hold the old and new one at once
 - Data volume 150 GB gp3, **same Availability Zone as the instance** — EBS can't
   attach across AZs
 
@@ -78,6 +79,35 @@ curl -s https://gene.example.org/config.json   # effective app config
 ```
 
 Then search a gene (e.g. `BRCA2`) in a browser to exercise the streaming path.
+
+## 7. Teardown
+
+Stops both services and removes the overlay network. The data directory is a
+bind mount and the volumes are named, so neither is touched — `./deploy.sh`
+brings the stack back with its existing certificates.
+
+```bash
+docker stack rm gene
+docker stack ps gene    # repeat until "nothing found in stack"; rm is async
+```
+
+Reclaim the ~10 GB of images:
+
+```bash
+docker system prune -af   # never --volumes; that takes the certs with it
+```
+
+To discard the certificates as well — only when you're done with the domain:
+
+```bash
+docker volume rm gene_caddy_data gene_caddy_config
+```
+
+Let's Encrypt issues 5 certificates per week for a given hostname, so repeated
+destroy-and-redeploy cycles will lock you out of new ones.
+
+To retire the instance, `docker swarm leave --force`, then terminate it and
+delete the data volume in the console.
 
 ## Notes
 
