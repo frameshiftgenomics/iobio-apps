@@ -80,7 +80,30 @@ curl -s https://gene.example.org/config.json   # effective app config
 
 Then search a gene (e.g. `BRCA2`) in a browser to exercise the streaming path.
 
-## 7. Teardown
+## Updating
+
+Sections 1–6 are first-time setup. Day-to-day changes are all `./deploy.sh`.
+
+**New backend version.** Bump `IMAGE` in `production.env`, then:
+
+```bash
+./deploy.sh
+docker service ps gene_gene    # watch the new task reach Running
+```
+
+Rollouts are `start-first`: the new container must pass its healthcheck before
+the old one stops, so a bad image leaves the site serving. `failure_action:
+rollback` reverts on its own; `docker service rollback gene_gene` forces it.
+Budget a few minutes — the image is ~10 GB unpacked and `start_period` allows
+120s for data indexing.
+
+**Config change.** Edit `iobio.env`, then `./deploy.sh`. Same rollout.
+
+**Data directory.** Rerun the sync from section 4 with the new version in the
+path; it syncs in place. Check the image's minimum data version first, and
+sync before deploying an image that requires it.
+
+## Teardown
 
 Stops both services and removes the overlay network. The data directory is a
 bind mount and the volumes are named, so neither is touched — `./deploy.sh`
@@ -123,9 +146,6 @@ docker service rollback gene_gene           # undo a bad update
 docker service update --force gene_caddy    # reload the Caddyfile
 ```
 
-- New version: bump `IMAGE` in `production.env`, `./deploy.sh`. Updates are
-  `start-first`, so the new container must pass its healthcheck first
-- Config change: edit `iobio.env`, `./deploy.sh`
 - Certs live in the `gene_caddy_data` volume — don't delete it, Let's Encrypt
   rate-limits reissuance
 - Logs capped at 5 × 50 MB per service; nothing is shipped off-box
