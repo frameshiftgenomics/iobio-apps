@@ -39,17 +39,14 @@ sudo mount -a                      # mount now, and validate the fstab line
 
 ## 4. Data directory
 
-Needs version **1.15.0 or newer**; 2.0.0 matches this image. ~128 GB and hours,
-so run the sync inside `screen`. Rerunning syncs in place, which is also how you
-upgrade.
+`DATA_URL` tracks the current 2.x release, and `deploy.sh` syncs it with rclone
+before every deploy, so this step is only the prerequisites. The first sync is
+~128 GB and takes hours — run that deploy inside `screen` (section 6).
 
 ```bash
 sudo apt-get install -y screen
 curl https://rclone.org/install.sh | sudo bash
 sudo chown ubuntu:ubuntu /mnt/gru_data
-screen
-rclone sync --progress --exclude 'lost+found/**' --http-url https://files.iobio.io \
-  :http:gru_data/data/gru_data_2.0.0/ /mnt/gru_data
 ```
 
 ## 5. Docker
@@ -67,10 +64,12 @@ docker swarm init
 git clone <this repo> ~/iobio-apps && cd ~/iobio-apps
 cp production.env.example production.env   # set ACME_EMAIL, DOMAIN, DATA_DIR
 cp iobio.env.example iobio.env             # site text, OMIM key
+screen                                     # the first data sync takes hours
 ./deploy.sh
 ```
 
-Allow a few minutes on first start for the image pull and data indexing.
+The data sync runs first; then allow a few minutes for the image pull and data
+indexing.
 
 ```bash
 docker stack services gene                     # 1/1 replicas for both
@@ -91,6 +90,10 @@ Sections 1–6 are first-time setup. Day-to-day changes are all `./deploy.sh`.
 docker service ps gene_gene    # watch the new task reach Running
 ```
 
+The data sync runs first, so a deploy that pins an older `IMAGE` still gets the
+current data — check the image's minimum data version, and `--no-sync` if it
+needs an older one.
+
 Rollouts are `start-first`: the new container must pass its healthcheck before
 the old one stops, so a bad image leaves the site serving. `failure_action:
 rollback` reverts on its own; `docker service rollback gene_gene` forces it.
@@ -99,9 +102,11 @@ Budget a few minutes — the image is ~10 GB unpacked and `start_period` allows
 
 **Config change.** Edit `iobio.env`, then `./deploy.sh`. Same rollout.
 
-**Data directory.** Rerun the sync from section 4 with the new version in the
-path; it syncs in place. Check the image's minimum data version first, and
-sync before deploying an image that requires it.
+**Data directory.** Every `./deploy.sh` syncs it before deploying, and `DATA_URL`
+is versionless, so data upgrades arrive with any deploy. Even a no-op sync lists
+~27k remote files, about two minutes; `./deploy.sh --no-sync` skips it for a
+config-only change. The sync refuses to run if `DATA_DIR` is not a mount point,
+so a detached volume can't fill the root disk.
 
 ## Teardown
 
